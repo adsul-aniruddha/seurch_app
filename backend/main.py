@@ -4,10 +4,12 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt
 from passlib.context import CryptContext
+from search.ai_search import router as ai_router
 import sqlite3
 
 # ================= APP =================
 app = FastAPI(title="All In One Backend")
+app.include_router(ai_router)
 
 # ================= CORS =================
 app.add_middleware(
