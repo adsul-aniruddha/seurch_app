@@ -3,4 +3,4 @@ uvicorn
 pillow
 python-multipart
 passlib[bcrypt]
-python-jose
+python-jose[cryptography]
