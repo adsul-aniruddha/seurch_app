@@ -4,7 +4,6 @@ from database import SessionLocal
 from history.models import SearchHistory
 from deps import get_current_user_id
 
-# ✅ ROUTER DEFINE (हे missing होतं)
 router = APIRouter()
 
 def get_db():
@@ -14,7 +13,8 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/history")
+# ✅ GET HISTORY (clean URL)
+@router.get("/")
 def get_history(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -23,7 +23,8 @@ def get_history(
         SearchHistory.user_id == user_id
     ).all()
 
-@router.delete("/history/delete")
+# ✅ DELETE HISTORY
+@router.delete("/delete")
 def delete_history(
     id: int,
     user_id: int = Depends(get_current_user_id),
@@ -39,5 +40,3 @@ def delete_history(
         db.commit()
 
     return {"status": "deleted"}
-
-

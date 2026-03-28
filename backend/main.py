@@ -1,15 +1,47 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt
 from passlib.context import CryptContext
 from search.ai_search import router as ai_router
+from history.api import router as history_router
+from settings.api import router as settings_router
+from account.api import router as account_router
+from web_creator.web_creator import router as web_creator_router
+
+# 🔥 NEW IMPORTS
+from app_creator.app_creator import router as app_creator_router
+from logogenerator.logo_generator import router as logo_router
+
 import sqlite3
+import os
 
 # ================= APP =================
-app = FastAPI(title="All In One Backend")
-app.include_router(ai_router)
+app = FastAPI(title="All In One SaaS Backend 🚀")
+
+# 🔥 AUTO CREATE FOLDERS
+if not os.path.exists("generated_sites"):
+    os.makedirs("generated_sites")
+
+if not os.path.exists("generated_apps"):
+    os.makedirs("generated_apps")
+
+if not os.path.exists("generated_logos"):
+    os.makedirs("generated_logos")
+
+# 🔥 STATIC SERVE
+app.mount("/generated_sites", StaticFiles(directory="generated_sites"), name="sites")
+
+# ================= ROUTERS =================
+app.include_router(ai_router, prefix="/ai", tags=["AI"])
+app.include_router(history_router, prefix="/history", tags=["History"])
+app.include_router(settings_router, prefix="/settings", tags=["Settings"])
+app.include_router(account_router, prefix="/account", tags=["Account"])
+app.include_router(web_creator_router, tags=["Web Creator"])
+app.include_router(app_creator_router, tags=["App Creator"])   # 🔥 NEW
+app.include_router(logo_router, tags=["Logo Generator"])       # 🔥 NEW
 
 # ================= CORS =================
 app.add_middleware(
@@ -54,12 +86,10 @@ conn.close()
 
 # ================= AUTH UTILS =================
 def hash_password(password: str):
-    password = password[:72]   # bcrypt limit fix
-    return pwd_context.hash(password)
+    return pwd_context.hash(password[:72])
 
 def verify_password(password: str, hashed: str):
-    password = password[:72]   # bcrypt limit fix
-    return pwd_context.verify(password, hashed)
+    return pwd_context.verify(password[:72], hashed)
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -83,7 +113,7 @@ class SearchData(BaseModel):
 # ================= ROOT =================
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Backend running"}
+    return {"status": "ok", "message": "All-in-One SaaS Backend running 🚀"}
 
 # ================= SIGNUP =================
 @app.post("/signup")
@@ -96,12 +126,11 @@ def signup(data: SignupData):
         conn.close()
         raise HTTPException(status_code=400, detail="User already exists")
 
-    hashed_password = hash_password(data.password)
-
     cur.execute(
         "INSERT INTO users (email, password) VALUES (?, ?)",
-        (data.email, hashed_password)
+        (data.email, hash_password(data.password))
     )
+
     conn.commit()
     conn.close()
 
@@ -117,10 +146,7 @@ def login(data: LoginData):
     row = cur.fetchone()
     conn.close()
 
-    if not row:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    if not verify_password(data.password, row[1]):
+    if not row or not verify_password(data.password, row[1]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token({"user_id": row[0]})
@@ -134,7 +160,7 @@ def save_search(data: SearchData):
 
     conn.execute(
         "INSERT INTO search_history (email, query, created_at) VALUES (?, ?, ?)",
-        (data.email, data.query, datetime.now().isoformat())
+        (data.email.strip(), data.query.strip(), datetime.now().isoformat())
     )
 
     conn.commit()
