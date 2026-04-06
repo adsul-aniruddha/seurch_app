@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -35,7 +35,7 @@ app.include_router(web_creator_router, tags=["Web Creator"])
 app.include_router(app_creator_router, tags=["App Creator"])
 app.include_router(logo_router, tags=["Logo Generator"])
 
-# ================= CORS (Frontend साठी) =================
+# ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -49,52 +49,74 @@ app.add_middleware(
 )
 
 # ================= CONFIG =================
-SECRET_KEY = "seurch_app_secret_2024_change_this"
+SECRET_KEY = "seurch_app_secret_2024_change_this_in_production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 Week
 DB_NAME = "app.db"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ================= DB =================
-def get_db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ================= DB CONTEXT MANAGER =================
+class Database:
+    def __enter__(self):
+        self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.conn.commit()
+        self.conn.close()
 
 # Auto create tables
-with get_db() as conn:
-    conn.execute("""
+with Database() as db:
+    db.cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE,
-        password TEXT,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """)
     
-    conn.execute("""
+    db.cursor.execute("""
     CREATE TABLE IF NOT EXISTS search_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT,
-        query TEXT,
+        email TEXT NOT NULL,
+        query TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """)
-    conn.commit()
 
 # ================= AUTH UTILS =================
-def hash_password(password: str):
-    return pwd_context.hash(password[:72])
+def hash_password(password: str) -> str:
+    """Hash password safely (bcrypt handles length limits)"""
+    return pwd_context.hash(password)
 
-def verify_password(password: str, hashed: str):
-    return pwd_context.verify(password[:72], hashed)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password safely"""
+    return pwd_context.verify(plain_password, hashed_password)
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(authorization: str = Header(None)):
+    """Dependency to get current user from token"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("email")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return {"email": email}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 # ================= MODELS =================
 class SignupData(BaseModel):
@@ -117,79 +139,67 @@ def root():
 # ================= SIGNUP =================
 @app.post("/signup")
 def signup(data: SignupData):
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE email=?", (data.email,))
-        if cur.fetchone():
-            raise HTTPException(status_code=400, detail="User already exists")
-
-        cur.execute(
+    with Database() as db:
+        # Check if user exists
+        db.cursor.execute("SELECT id FROM users WHERE email = ?", (data.email.lower().strip(),))
+        if db.cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Create user
+        hashed_password = hash_password(data.password)
+        db.cursor.execute(
             "INSERT INTO users (email, password) VALUES (?, ?)",
-            (data.email, hash_password(data.password))
+            (data.email.lower().strip(), hashed_password)
         )
-        conn.commit()
+        
         return {"status": "created", "message": "Account created successfully"}
-    finally:
-        conn.close()
 
 # ================= LOGIN =================
 @app.post("/login")
 def login(data: LoginData):
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, password FROM users WHERE email=?", (data.email,))
-        row = cur.fetchone()
+    with Database() as db:
+        # Find user
+        db.cursor.execute(
+            "SELECT id, email, password FROM users WHERE email = ?", 
+            (data.email.lower().strip(),)
+        )
+        user = db.cursor.fetchone()
         
-        if not row or not verify_password(data.password, row[1]):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Verify password
+        if not verify_password(data.password, user["password"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Create token
+        token = create_access_token({"user_id": user["id"], "email": user["email"]})
+        return {"access_token": token, "token_type": "bearer", "email": user["email"]}
 
-        token = create_access_token({"user_id": row[0], "email": data.email})
-        return {"access_token": token, "token_type": "bearer"}
-    finally:
-        conn.close()
-
-# 🔥 AUTO LOGIN TOKEN VERIFY
+# ================= TOKEN VERIFY =================
 @app.get("/verify-token")
-def verify_token(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No token provided")
-    
-    token = authorization.split(" ")[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return {"valid": True, "email": payload.get("email")}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid/Expired token")
+def verify_token(current_user: dict = Depends(get_current_user)):
+    return {"valid": True, "email": current_user["email"]}
 
 # ================= HISTORY =================
 @app.post("/save-search")
-def save_search(data: SearchData):
-    conn = get_db()
-    try:
-        conn.execute(
+def save_search(data: SearchData, current_user: dict = Depends(get_current_user)):
+    with Database() as db:
+        db.cursor.execute(
             "INSERT INTO search_history (email, query) VALUES (?, ?)",
-            (data.email.strip(), data.query.strip())
+            (current_user["email"], data.query.strip())
         )
-        conn.commit()
         return {"status": "saved"}
-    finally:
-        conn.close()
 
 @app.get("/history")
-def get_history(email: str):
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+def get_history(current_user: dict = Depends(get_current_user)):
+    with Database() as db:
+        db.cursor.execute(
             "SELECT query, created_at FROM search_history WHERE email=? ORDER BY created_at DESC LIMIT 50", 
-            (email,)
+            (current_user["email"],)
         )
-        history = [{"query": row[0], "timestamp": row[1]} for row in cur.fetchall()]
+        history = [{"query": row["query"], "timestamp": row["created_at"]} for row in db.cursor.fetchall()]
         return history
-    finally:
-        conn.close()
 
 # ================= SEARCH =================
 @app.get("/search")
@@ -207,7 +217,7 @@ def search(q: str):
 
 # ================= WEBSITE CREATOR =================
 @app.post("/create-website")
-def create_website(data: dict):
+def create_website(data: dict, current_user: dict = Depends(get_current_user)):
     name = data.get("name", "My Website")
     return {
         "name": name,
