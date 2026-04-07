@@ -5,11 +5,9 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
 requests==2.32.3
 
-# FIXED Database (Python 3.14 compatible)
-sqlalchemy==2.0.35
+# NO RUST NEEDED ✅
+sqlalchemy==1.4.52
 psycopg2-binary==2.9.9
-alembic==1.13.2
 
-# FIXED Pydantic (Stable)
-pydantic==2.8.2
-pydantic-settings==2.5.2
+# OLD STABLE Pydantic (No Rust)
+pydantic==1.10.13
