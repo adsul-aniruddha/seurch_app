@@ -12,7 +12,7 @@ from settings.api import router as settings_router
 from account.api import router as account_router
 from web_creator.web_creator import router as web_creator_router
 from app_creator.app_creator import router as app_creator_router
-from logogenerator.logo_generator import router as logo_router
+from logogenerator.logo_main import router as logo_router
 
 import sqlite3
 import os
@@ -33,8 +33,7 @@ app.include_router(settings_router, prefix="/settings", tags=["Settings"])
 app.include_router(account_router, prefix="/account", tags=["Account"])
 app.include_router(web_creator_router, tags=["Web Creator"])
 app.include_router(app_creator_router, tags=["App Creator"])
-app.include_router(logo_router, tags=["Logo Generator"])
-
+app.include_router(logo_router, prefix="/logo", tags=["Logo Generator"])
 # ================= CORS =================
 app.add_middleware(
     CORSMiddleware,

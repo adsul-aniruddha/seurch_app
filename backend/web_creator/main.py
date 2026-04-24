@@ -1,32 +1,31 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
 
-# 🔥 import router
-from web_creator import router as web_router
+# 🔥 ONLY WEB ROUTER
+from app_main import router as app_router
 
-app = FastAPI(title="Web Creator Service 🚀")
+app = FastAPI(title="Web Creator 🚀")
 
-# ✅ CORS (Flutter connect साठी)
+# ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 🔥 ensure folder exists
-if not os.path.exists("generated_sites"):
-    os.makedirs("generated_sites")
+# ================= STATIC FILES =================
+# 👉 generated website serve karayla
+app.mount("/generated", StaticFiles(directory="generated"), name="generated")
 
-# 🔥 static serve
-app.mount("/generated_sites", StaticFiles(directory="generated_sites"), name="sites")
+# ================= ROUTER =================
+app.include_router(app_router, prefix="/app", tags=["Web Creator"])
 
-# 🔥 router include
-app.include_router(web_router)
-
-# 🔥 test route
+# ================= ROOT =================
 @app.get("/")
 def root():
-    return {"status": "Web Creator running ✅"}
+    return {
+        "status": "Web Creator Running 🚀"
+    }

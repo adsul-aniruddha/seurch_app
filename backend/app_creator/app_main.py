@@ -1,11 +1,21 @@
-from fastapi import APIRouter
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import shutil
 import zipfile
 from pathlib import Path
 
-router = APIRouter()
+app = FastAPI(title="App Creator API 🚀")
+
+# ================= CORS =================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ================= MODEL =================
 class AppRequest(BaseModel):
@@ -13,11 +23,10 @@ class AppRequest(BaseModel):
 
 BASE_PATH = "generated_apps"
 
-# ================= CREATE APP =================
-@router.post("/create")
+# ================= MAIN ROUTE =================
+@app.post("/create-app")
 def create_app(data: AppRequest):
 
-    # clean name
     app_name = "".join(c for c in data.app_name if c.isalnum() or c == "_").lower()
     app_path = Path(BASE_PATH) / app_name
 
@@ -42,31 +51,22 @@ class MyApp extends StatelessWidget {{
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        appBar: AppBar(
-          title: Text("{app_name}"),
-          centerTitle: true,
-        ),
+        appBar: AppBar(title: Text("{app_name}")),
         body: Center(
-          child: Text(
-            "🚀 {app_name} Created Successfully",
-            style: TextStyle(fontSize: 20),
-          ),
+          child: Text("🚀 {app_name} Created Successfully"),
         ),
       ),
     );
   }}
 }}
 """
-
     with open(app_path / "lib/main.dart", "w") as f:
         f.write(main_code)
 
     # ================= pubspec.yaml =================
     pubspec = f"""
 name: {app_name}
-description: Generated Flutter App
-
-publish_to: 'none'
+description: Generated App
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -74,9 +74,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-flutter:
-  uses-material-design: true
 """
     with open(app_path / "pubspec.yaml", "w") as f:
         f.write(pubspec)
@@ -97,7 +94,12 @@ flutter:
         "zip": str(zip_path)
     }
 
-# ================= TEST ROUTE =================
-@router.get("/test")
-def test():
-    return {"msg": "App Creator Working 🚀"}
+# ================= ROOT =================
+@app.get("/")
+def home():
+    return {"msg": "App Creator Running 🚀"}
+
+# ================= RUN =================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", port=8081, reload=True)
