@@ -131,6 +131,11 @@ class SearchData(BaseModel):
 def root():
     return {"status": "ok"}
 
+# ================= HEALTH =================
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # ================= SIGNUP =================
 @app.post("/signup")
 def signup(data: SignupData):
